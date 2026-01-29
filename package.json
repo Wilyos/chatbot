@@ -1,0 +1,21 @@
+{
+  "name": "whatsapp-chatbot",
+  "version": "1.0.0",
+  "description": "Chatbot GRATUITO para WhatsApp usando whatsapp-web.js",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "keywords": ["whatsapp", "chatbot", "whatsapp-web", "free"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "whatsapp-web.js": "^1.25.0",
+    "qrcode-terminal": "^0.12.0",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  }
+}
