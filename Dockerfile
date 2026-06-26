@@ -1,26 +1,28 @@
-FROM ghcr.io/puppeteer/puppeteer:latest
+FROM node:20-slim
 
-# Cambiar a usuario root para instalar dependencias y crear carpetas
-USER root
+# Instalar Chromium y dependencias necesarias para Puppeteer en Debian
+RUN apt-get update && apt-get install -y \
+    chromium \
+    fonts-ipafont-gothic fonts-wqy-zenhei fonts-thai-tlwg fonts-kacst fonts-freefont-ttf libxss1 \
+    --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
 
-# Establecer el directorio de trabajo
 WORKDIR /app
 
-# Copiar package.json y package-lock.json
+# Copiar archivos de dependencias
 COPY package*.json ./
 
-# Forzar las variables de entorno de Puppeteer
+# Forzar a Puppeteer a usar el Chromium de sistema que acabamos de instalar
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
-    PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome-stable
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
-# Instalar dependencias del proyecto (incluyendo whatsapp-web.js)
+# Instalar dependencias
 RUN npm install
 
-# Copiar el resto del código del proyecto
+# Copiar el resto del código
 COPY . .
 
-# Exponer el puerto para el servidor de healthcheck (Railway)
+# Puerto para Railway
 EXPOSE 8080
 
-# Comando para iniciar el chatbot
 CMD ["npm", "start"]
