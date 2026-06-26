@@ -9,6 +9,10 @@ WORKDIR /app
 # Copiar package.json y package-lock.json
 COPY package*.json ./
 
+# Forzar las variables de entorno de Puppeteer
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome-stable
+
 # Instalar dependencias del proyecto (incluyendo whatsapp-web.js)
 RUN npm install
 
