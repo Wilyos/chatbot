@@ -29,15 +29,20 @@ const client = new Client({
   qrMaxRetries: 5
 });
 
+// Variable para guardar el último QR y mostrarlo en la web
+let latestQR = '';
+
 // Evento: Código QR generado
 client.on('qr', (qr) => {
-  console.log('\n📱 Escanea este código QR con WhatsApp:\n');
+  console.log('\n📱 Escanea este código QR con WhatsApp (o abre la URL web de Railway):\n');
   qrcode.generate(qr, { small: true });
+  latestQR = qr;
   console.log('\n⚠️  IMPORTANTE: Abre WhatsApp en tu teléfono → Configuración → Dispositivos vinculados → Vincular dispositivo\n');
 });
 
 // Evento: Cliente listo
 client.on('ready', () => {
+  latestQR = ''; // Limpiamos el QR porque ya se conectó
   console.log('✅ ¡Chatbot de WhatsApp conectado y listo!');
   console.log('📱 Ahora puedes recibir y responder mensajes');
   console.log('⏰ Hora de inicio:', new Date().toLocaleString('es-ES'));
@@ -191,12 +196,57 @@ console.log('⏳ Esperando código QR...\n');
 
 client.initialize();
 
-// Servidor web básico para Railway (Healthcheck)
+// Servidor web básico para Railway (Healthcheck y Vista de QR)
 // Railway requiere que las aplicaciones abran un puerto para saber que están vivas
 const PORT = process.env.PORT || 3000;
 const server = http.createServer((req, res) => {
-  res.writeHead(200, { 'Content-Type': 'text/plain' });
-  res.end('El chatbot de WhatsApp esta funcionando correctamente!');
+  if (req.url === '/') {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    if (latestQR) {
+      res.end(`
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <title>WhatsApp Bot QR</title>
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+            <style>
+              body { display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; font-family:sans-serif; background-color:#f0f2f5; margin:0; text-align:center; padding: 20px;}
+              #qrcode { padding:20px; background:white; border-radius:10px; box-shadow:0 4px 12px rgba(0,0,0,0.1); margin-top: 20px;}
+            </style>
+          </head>
+          <body>
+            <h2>🤖 Vincula tu Chatbot</h2>
+            <p>Escanea este código con tu WhatsApp para iniciar sesión.</p>
+            <div id="qrcode"></div>
+            <p style="margin-top:20px; color:#666; font-size: 14px;">(Si el QR expira, refresca la página)</p>
+            <script>
+              new QRCode(document.getElementById("qrcode"), {
+                text: "${latestQR}",
+                width: 256,
+                height: 256,
+                colorDark : "#000000",
+                colorLight : "#ffffff",
+                correctLevel : QRCode.CorrectLevel.H
+              });
+            </script>
+          </body>
+        </html>
+      `);
+    } else {
+      res.end(`
+        <!DOCTYPE html>
+        <html>
+          <body style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; font-family:sans-serif; background-color:#f0f2f5; margin:0; text-align:center;">
+            <h2>✅ El chatbot está en línea y conectado a WhatsApp</h2>
+          </body>
+        </html>
+      `);
+    }
+  } else {
+    res.writeHead(404);
+    res.end();
+  }
 });
 
 server.listen(PORT, () => {
