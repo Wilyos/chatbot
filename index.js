@@ -2,6 +2,7 @@ require('dotenv').config();
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const ChatbotResponses = require('./chatbotResponses');
+const http = require('http');
 
 // Inicializar el sistema de respuestas
 const chatbot = new ChatbotResponses();
@@ -9,7 +10,7 @@ const chatbot = new ChatbotResponses();
 // Crear cliente de WhatsApp
 const client = new Client({
   authStrategy: new LocalAuth({
-    dataPath: '.wwebjs_auth'
+    dataPath: process.env.RAILWAY_VOLUME_MOUNT_PATH ? `${process.env.RAILWAY_VOLUME_MOUNT_PATH}/.wwebjs_auth` : '.wwebjs_auth'
   }),
   puppeteer: {
     headless: true,
@@ -188,5 +189,17 @@ console.log('🚀 Iniciando chatbot de WhatsApp...');
 console.log('⏳ Esperando código QR...\n');
 
 client.initialize();
+
+// Servidor web básico para Railway (Healthcheck)
+// Railway requiere que las aplicaciones abran un puerto para saber que están vivas
+const PORT = process.env.PORT || 3000;
+const server = http.createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/plain' });
+  res.end('El chatbot de WhatsApp esta funcionando correctamente!');
+});
+
+server.listen(PORT, () => {
+  console.log(`🌐 Servidor web de healthcheck iniciado en el puerto ${PORT}`);
+});
 
 module.exports = client;
