@@ -1,11 +1,64 @@
 require('dotenv').config();
-const { Client, LocalAuth } = require('whatsapp-web.js');
+const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const ChatbotResponses = require('./chatbotResponses');
 const http = require('http');
+const fs = require('fs');
+const path = require('path');
 
 // Inicializar el sistema de respuestas
 const chatbot = new ChatbotResponses();
+
+// Archivo para guardar números que ya recibieron el portafolio
+const SENT_NUMBERS_FILE = path.join(__dirname, 'sent_numbers.json');
+
+// Cargar números del archivo
+function loadSentNumbers() {
+  try {
+    if (fs.existsSync(SENT_NUMBERS_FILE)) {
+      const data = fs.readFileSync(SENT_NUMBERS_FILE, 'utf8');
+      return JSON.parse(data);
+    }
+  } catch (error) {
+    console.error('❌ Error al cargar sent_numbers.json:', error.message);
+  }
+  return [];
+}
+
+// Guardar número en el archivo
+function saveSentNumber(number) {
+  try {
+    const numbers = loadSentNumbers();
+    if (!numbers.includes(number)) {
+      numbers.push(number);
+      fs.writeFileSync(SENT_NUMBERS_FILE, JSON.stringify(numbers, null, 2), 'utf8');
+      console.log(`💾 Número registrado en sent_numbers.json: ${number}`);
+    }
+  } catch (error) {
+    console.error('❌ Error al guardar en sent_numbers.json:', error.message);
+  }
+}
+
+// Guardar múltiples números en lote para mayor eficiencia al iniciar
+function saveSentNumbersBatch(newNumbers) {
+  try {
+    const numbers = loadSentNumbers();
+    let modified = false;
+    for (const num of newNumbers) {
+      if (!numbers.includes(num)) {
+        numbers.push(num);
+        modified = true;
+      }
+    }
+    if (modified) {
+      fs.writeFileSync(SENT_NUMBERS_FILE, JSON.stringify(numbers, null, 2), 'utf8');
+      console.log(`💾 Registrados en lote ${newNumbers.length} números de chats existentes en sent_numbers.json.`);
+    }
+  } catch (error) {
+    console.error('❌ Error al guardar lote en sent_numbers.json:', error.message);
+  }
+}
+
 
 // Crear cliente de WhatsApp
 const client = new Client({
@@ -41,7 +94,7 @@ client.on('qr', (qr) => {
 });
 
 // Evento: Cliente listo
-client.on('ready', () => {
+client.on('ready', async () => {
   latestQR = ''; // Limpiamos el QR porque ya se conectó
   console.log('✅ ¡Chatbot de WhatsApp conectado y listo!');
   console.log('📱 Ahora puedes recibir y responder mensajes');
@@ -51,6 +104,24 @@ client.on('ready', () => {
   setInterval(() => {
     chatbot.cleanOldSessions();
   }, 60 * 60 * 1000);
+
+  // Obtener e importar todos los chats abiertos existentes
+  console.log('⏳ Cargando chats existentes para registrarlos...');
+  try {
+    const chats = await client.getChats();
+    const existingNumbers = [];
+    for (const chat of chats) {
+      if (!chat.isGroup) {
+        existingNumbers.push(chat.id._serialized);
+      }
+    }
+    if (existingNumbers.length > 0) {
+      saveSentNumbersBatch(existingNumbers);
+    }
+    console.log(`✅ Registro inicial completado. Se procesaron ${existingNumbers.length} chats individuales existentes.`);
+  } catch (chatError) {
+    console.error('❌ Error al cargar chats existentes:', chatError.message);
+  }
 });
 
 // Evento: Autenticación exitosa
@@ -101,54 +172,68 @@ client.on('message_create', async (message) => {
 
     // Obtener información del contacto
     const contact = await message.getContact();
+
+    // Verificar si el número ya recibió la información
+    const sentNumbers = loadSentNumbers();
+    if (sentNumbers.includes(userId)) {
+      // Ya se le envió el mensaje de bienvenida, ignorar por completo
+      return;
+    }
     
-    // Log del mensaje recibido
-    console.log(`\n📨 Mensaje de ${contact.pushname || contact.number}:`);
+    // Log del mensaje recibido (primer contacto)
+    console.log(`\n📨 ¡Nuevo chat detectado! Mensaje de ${contact.pushname || contact.number}:`);
     console.log(`   Contenido: "${messageBody}"`);
     console.log(`   ID Usuario: ${userId}`);
     console.log(`   Hora: ${new Date().toLocaleTimeString('es-ES')}`);
 
-    // Procesar el mensaje y obtener respuesta
-    const responseData = chatbot.processWithContext(userId, messageBody);
-    
-    // Extraer mensaje y flag de marcar no leído
-    const response = typeof responseData === 'string' ? responseData : responseData.message;
-    const shouldMarkUnread = responseData.markUnread || false;
+    const welcomeMessage = 'Hola, Gracias por tu mensaje. En un momento te pondremos en contacto con un asesor, mientras tanto puedes ir revisando nuestro portafolio';
 
     // Pequeña pausa para simular escritura
-    await new Promise(resolve => setTimeout(resolve, 800));
+    await new Promise(resolve => setTimeout(resolve, 1000));
 
-    // Enviar respuesta de manera más segura usando sendMessage directo del chat
+    // Enviar mensaje de bienvenida
     try {
-      await chat.sendMessage(response, { sendSeen: false });
-      console.log(`✅ Respuesta enviada`);
-      
-      // Si se debe marcar como no leído, hacerlo después de enviar
-      if (shouldMarkUnread) {
-        try {
-          await chat.markUnread();
-          console.log(`📌 Chat marcado como no leído - Requiere atención humana`);
-        } catch (markError) {
-          console.log(`⚠️  No se pudo marcar como no leído (esto es normal en algunas versiones)`);
-        }
-      }
-      
+      await chat.sendMessage(welcomeMessage, { sendSeen: false });
+      console.log(`✅ Mensaje de bienvenida enviado a ${contact.number}`);
     } catch (sendError) {
-      // Método alternativo si falla
-      console.log('⚠️  Intentando método alternativo de envío...');
+      console.error(`❌ Error al enviar mensaje de bienvenida (método principal):`, sendError.message);
+      // Reintentar con método alternativo
       const ChatId = await message.getChat();
-      await ChatId.sendMessage(response);
-      console.log(`✅ Respuesta enviada (método alternativo)`);
-      
-      // Intentar marcar como no leído con método alternativo
-      if (shouldMarkUnread) {
-        try {
-          await ChatId.markUnread();
-          console.log(`📌 Chat marcado como no leído - Requiere atención humana`);
-        } catch (markError) {
-          console.log(`⚠️  No se pudo marcar como no leído`);
-        }
+      await ChatId.sendMessage(welcomeMessage);
+      console.log(`✅ Mensaje de bienvenida enviado (método alternativo)`);
+    }
+
+    // Pequeña pausa entre mensajes
+    await new Promise(resolve => setTimeout(resolve, 1200));
+
+    // Cargar y enviar el archivo PDF
+    const pdfPath = path.join(__dirname, 'SISTEMAS LITOGRAFICOS PORTAFOLIO EMPAQUES -2  2026.pdf');
+    if (fs.existsSync(pdfPath)) {
+      try {
+        const media = MessageMedia.fromFilePath(pdfPath);
+        await chat.sendMessage(media, { sendSeen: false });
+        console.log(`✅ PDF de portafolio enviado a ${contact.number}`);
+      } catch (pdfError) {
+        console.error(`❌ Error al enviar el PDF (método principal):`, pdfError.message);
+        // Reintentar con método alternativo
+        const ChatId = await message.getChat();
+        const media = MessageMedia.fromFilePath(pdfPath);
+        await ChatId.sendMessage(media);
+        console.log(`✅ PDF de portafolio enviado (método alternativo)`);
       }
+    } else {
+      console.error(`❌ Archivo PDF no encontrado en la ruta: ${pdfPath}`);
+    }
+
+    // Guardar número en el registro persistente
+    saveSentNumber(userId);
+
+    // Marcar como no leído para atención humana
+    try {
+      await chat.markUnread();
+      console.log(`📌 Chat marcado como no leído - Requiere atención humana`);
+    } catch (markError) {
+      console.log(`⚠️  No se pudo marcar como no leído (esto es normal en algunas versiones)`);
     }
 
   } catch (error) {
